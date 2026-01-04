@@ -1,8 +1,8 @@
 const nodemailer = require('nodemailer');
 const fetch = require('node-fetch');
 const express = require('express');
-const { createClient } = require('@supabase/supabase-js');
 const crypto = require('crypto');
+const { Pool } = require('pg');
 
 // ============================================
 // CONFIGURATION FROM ENVIRONMENT VARIABLES
@@ -45,15 +45,9 @@ for (const key of REQUIRED) {
 }
 
 // ============================================
-// DATABASE (SUPABASE)
+// DATABASE (POSTGRES)
 // ============================================
 
-const supabase = createClient(CONFIG.DATABASE_URL.replace('postgresql://', 'https://').split('@')[1].split(':')[0], 'dummy', {
-  db: { schema: 'public' },
-  auth: { persistSession: false }
-});
-
-// Use node-postgres for direct connection
 const { Pool } = require('pg');
 const pool = new Pool({ connectionString: CONFIG.DATABASE_URL });
 
