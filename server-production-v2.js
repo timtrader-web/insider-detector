@@ -593,18 +593,6 @@ function generateAlertEmail(signal) {
     `;
   }
   
-  if (signal.secondarySources.size > 0) {
-    html += `<h3>📊 Supporting Context:</h3>`;
-    const secondarySigs = [...signal.buys, ...signal.sells].filter(s => !s.isPrimary).slice(0, 3);
-    for (const sig of secondarySigs) {
-      html += `
-        <div class="source">
-          📊 <strong>${sig.source}:</strong> ${sig.action}
-        </div>
-      `;
-    }
-  }
-  
   html += `
     </div>
     
@@ -628,7 +616,7 @@ function generateAlertEmail(signal) {
 
 async function sendEmail(subject, html) {
   try {
-    const transporter = nodemailer.createTransporter({
+    const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
         user: CONFIG.EMAIL_FROM,
@@ -963,7 +951,7 @@ initDatabase().then(() => {
     console.log(`   URL: https://insider-detector.onrender.com`);
     console.log(`   Auth: Basic (password set in env)\n`);
     console.log('🎯 Scan endpoint: POST /scan');
-    console.log(`   Header: X-Scan-Token: ${CONFIG.SCAN_TOKEN}\n`);
+    console.log('   Header: X-Scan-Token: [hidden]\n');
     console.log('✅ System ready for external triggers\n');
   });
 });
