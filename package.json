@@ -1,16 +1,17 @@
 {
-  "name": "insider-detector",
-  "version": "1.0.0",
-  "description": "Nuclear insider trading detector",
-  "main": "server-final.js",
+  "name": "nuclear-insider-detector",
+  "version": "2.0.0",
+  "description": "Production-grade insider trading detector",
+  "main": "server-production-v2.js",
   "scripts": {
-    "start": "node server-final.js"
+    "start": "node server-production-v2.js"
   },
   "dependencies": {
     "nodemailer": "^6.9.7",
     "node-fetch": "^2.7.0",
     "express": "^4.18.2",
-    "mailparser": "^3.6.5"
+    "@supabase/supabase-js": "^2.39.0",
+    "pg": "^8.11.3"
   },
   "engines": {
     "node": ">=14.0.0"
