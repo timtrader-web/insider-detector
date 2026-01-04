@@ -1,0 +1,23 @@
+{
+  "name": "polymarket-insider-monitor",
+  "version": "1.0.0",
+  "description": "24/7 Polymarket insider trading detector with email alerts",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.7",
+    "node-fetch": "^2.7.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
+  "dependencies": {
+    "nodemailer": "^6.9.0",
+    "node-fetch": "^2.6.7",
+    "express": "^4.18.2",
+    "mailparser": "^3.6.5"
+  }
+}
