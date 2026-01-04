@@ -1,519 +1,65 @@
 const nodemailer = require('nodemailer');
 const fetch = require('node-fetch');
-const fs = require('fs').promises;
 const express = require('express');
-const { simpleParser } = require('mailparser');
+const fs = require('fs').promises;
 
 // ============================================
-// CONFIGURATION
+// CONFIGURATION - EDIT THESE 3 VALUES
 // ============================================
 
 const CONFIG = {
-  // Email settings
   EMAIL_TO: 'tim.norman@gmail.com',
   EMAIL_FROM: 'tim.norman@gmail.com',
   EMAIL_PASSWORD: 'amkpxyixfannzowl',
   
-  // API Keys (FREE)
   SEC_API_KEY: '5c1704699394f4fb362f2d274503d9dcd999be9f87d9da27896dc8ee8bec08bc',
-  WHALE_ALERT_API_KEY: '',
   
-  // Signal thresholds
-  NUCLEAR_BUY_CONFIDENCE: 85,
-  NUCLEAR_SELL_CONFIDENCE: 85,
+  NUCLEAR_CONFIDENCE: 85,
   MIN_SOURCES: 2,
+  SCAN_INTERVAL_MINUTES: 30,
+  WEB_PORT: process.env.PORT || 3000,
   
-  // Sell strategy
   PROFIT_TARGET: 15,
   MAX_HOLD_DAYS: 60,
-  STOP_LOSS: -8,
-  
-  // Timing
-  SCAN_INTERVAL_MINUTES: 30,
-  WEEKLY_SUMMARY_DAY: 0,
-  
-  // Web interface
-  WEB_PORT: 3000,
-  
-  // Files
-  PORTFOLIO_FILE: './portfolio.json'
+  STOP_LOSS: -8
 };
 
 // ============================================
-// WEB INTERFACE
+// PORTFOLIO STORAGE
 // ============================================
 
-const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Serve portfolio management page
-app.get('/', async (req, res) => {
-  const portfolio = await loadPortfolio();
-  
-  const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Nuclear Insider Detector</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { 
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-      padding: 20px;
-    }
-    .container { max-width: 900px; margin: 0 auto; }
-    .header {
-      background: rgba(255,255,255,0.95);
-      padding: 30px;
-      border-radius: 16px;
-      margin-bottom: 20px;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-    }
-    .header h1 { font-size: 32px; color: #1a1a1a; margin-bottom: 5px; }
-    .header p { color: #666; font-size: 14px; }
-    
-    .stats {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 15px;
-      margin-bottom: 20px;
-    }
-    .stat-card {
-      background: rgba(255,255,255,0.95);
-      padding: 25px;
-      border-radius: 12px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-    }
-    .stat-label { font-size: 13px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
-    .stat-value { font-size: 36px; font-weight: bold; margin: 10px 0; }
-    .stat-value.positive { color: #10b981; }
-    .stat-value.negative { color: #ef4444; }
-    
-    .section {
-      background: rgba(255,255,255,0.95);
-      padding: 30px;
-      border-radius: 12px;
-      margin-bottom: 20px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-    }
-    .section h2 { font-size: 20px; margin-bottom: 20px; color: #1a1a1a; }
-    
-    .form-group {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr auto;
-      gap: 15px;
-      margin-bottom: 15px;
-    }
-    input, button {
-      padding: 12px 20px;
-      border-radius: 8px;
-      border: 2px solid #e5e7eb;
-      font-size: 16px;
-      font-family: inherit;
-    }
-    input:focus { outline: none; border-color: #667eea; }
-    button {
-      background: linear-gradient(135deg, #667eea, #764ba2);
-      color: white;
-      border: none;
-      font-weight: bold;
-      cursor: pointer;
-      transition: transform 0.2s;
-    }
-    button:hover { transform: translateY(-2px); }
-    button:active { transform: translateY(0); }
-    
-    .position {
-      background: #f9fafb;
-      padding: 20px;
-      border-radius: 10px;
-      margin-bottom: 15px;
-      border-left: 5px solid #667eea;
-    }
-    .position.winning { border-left-color: #10b981; }
-    .position.losing { border-left-color: #ef4444; }
-    
-    .position-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 10px;
-    }
-    .ticker { font-size: 24px; font-weight: bold; color: #1a1a1a; }
-    .pnl { font-size: 24px; font-weight: bold; }
-    .pnl.positive { color: #10b981; }
-    .pnl.negative { color: #ef4444; }
-    
-    .position-details {
-      font-size: 14px;
-      color: #666;
-      margin-top: 10px;
-    }
-    .position-details span { margin-right: 15px; }
-    
-    .btn-sell {
-      background: linear-gradient(135deg, #ef4444, #dc2626);
-      padding: 8px 20px;
-      font-size: 14px;
-      margin-top: 10px;
-    }
-    
-    .empty {
-      text-align: center;
-      padding: 40px;
-      color: #666;
-      font-size: 16px;
-    }
-    
-    @media (max-width: 768px) {
-      .stats { grid-template-columns: 1fr; }
-      .form-group { 
-        grid-template-columns: 1fr;
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>🚨 Nuclear Insider Detector</h1>
-      <p>Portfolio Tracking & Trade Management</p>
-    </div>
-    
-    <div class="stats">
-      <div class="stat-card">
-        <div class="stat-label">Unrealized P&L</div>
-        <div class="stat-value ${portfolio.positions.reduce((s,p) => s + p.unrealizedPnL, 0) >= 0 ? 'positive' : 'negative'}">
-          ${portfolio.positions.reduce((s,p) => s + p.unrealizedPnL, 0) >= 0 ? '+' : ''}$${portfolio.positions.reduce((s,p) => s + p.unrealizedPnL, 0).toFixed(2)}
-        </div>
-        <div style="font-size: 14px; color: #666;">
-          ${(portfolio.positions.reduce((s,p) => s + p.unrealizedPnLPercent, 0) / (portfolio.positions.length || 1)).toFixed(1)}% average
-        </div>
-      </div>
-      
-      <div class="stat-card">
-        <div class="stat-label">Realized P&L</div>
-        <div class="stat-value ${portfolio.history.filter(h => h.type === 'SELL').reduce((s,t) => s + (t.profit || 0), 0) >= 0 ? 'positive' : 'negative'}">
-          ${portfolio.history.filter(h => h.type === 'SELL').reduce((s,t) => s + (t.profit || 0), 0) >= 0 ? '+' : ''}$${portfolio.history.filter(h => h.type === 'SELL').reduce((s,t) => s + (t.profit || 0), 0).toFixed(2)}
-        </div>
-        <div style="font-size: 14px; color: #666;">
-          ${portfolio.history.filter(h => h.type === 'SELL').length} closed trades
-        </div>
-      </div>
-    </div>
-    
-    <div class="section">
-      <h2>📝 Record New Trade</h2>
-      <form id="buyForm" class="form-group">
-        <input type="text" id="buyTicker" placeholder="Ticker (e.g., NVDA)" required>
-        <input type="number" id="buyPrice" placeholder="Buy Price" step="0.01" required>
-        <input type="number" id="buyUnits" placeholder="Units" step="0.01" value="1">
-        <button type="submit">Buy</button>
-      </form>
-      
-      <form id="sellForm" class="form-group">
-        <input type="text" id="sellTicker" placeholder="Ticker (e.g., NVDA)" required>
-        <input type="number" id="sellPrice" placeholder="Sell Price" step="0.01" required>
-        <input type="number" id="sellUnits" placeholder="Units" step="0.01" value="1">
-        <button type="submit" style="background: linear-gradient(135deg, #ef4444, #dc2626);">Sell</button>
-      </form>
-    </div>
-    
-    <div class="section">
-      <h2>💼 Open Positions (${portfolio.positions.length})</h2>
-      ${portfolio.positions.length === 0 ? '<div class="empty">No open positions. Start by recording a buy above!</div>' : ''}
-      ${portfolio.positions.map(pos => `
-        <div class="position ${pos.unrealizedPnLPercent > 0 ? 'winning' : 'losing'}">
-          <div class="position-header">
-            <div class="ticker">${pos.ticker}</div>
-            <div class="pnl ${pos.unrealizedPnLPercent >= 0 ? 'positive' : 'negative'}">
-              ${pos.unrealizedPnLPercent >= 0 ? '+' : ''}${pos.unrealizedPnLPercent.toFixed(1)}%
-            </div>
-          </div>
-          <div class="position-details">
-            <span><strong>Buy:</strong> $${pos.buyPrice.toFixed(2)}</span>
-            <span><strong>Current:</strong> $${pos.currentPrice.toFixed(2)}</span>
-            <span><strong>P&L:</strong> $${pos.unrealizedPnL.toFixed(2)}</span>
-            <span><strong>Held:</strong> ${pos.daysHeld} days</span>
-          </div>
-          <button class="btn-sell" onclick="quickSell('${pos.ticker}', ${pos.currentPrice})">
-            Quick Sell @ $${pos.currentPrice.toFixed(2)}
-          </button>
-        </div>
-      `).join('')}
-    </div>
-    
-    ${portfolio.history.filter(h => h.type === 'SELL').length > 0 ? `
-    <div class="section">
-      <h2>📊 Recent Closed Trades</h2>
-      ${portfolio.history.filter(h => h.type === 'SELL').slice(-5).reverse().map(trade => `
-        <div class="position ${trade.profitPercent > 0 ? 'winning' : 'losing'}">
-          <div class="position-header">
-            <div class="ticker">${trade.ticker}</div>
-            <div class="pnl ${trade.profitPercent >= 0 ? 'positive' : 'negative'}">
-              ${trade.profitPercent >= 0 ? '+' : ''}${trade.profitPercent.toFixed(1)}%
-            </div>
-          </div>
-          <div class="position-details">
-            <span><strong>${trade.profitPercent >= 0 ? 'Profit' : 'Loss'}:</strong> $${Math.abs(trade.profit).toFixed(2)}</span>
-            <span><strong>Held:</strong> ${trade.daysHeld} days</span>
-            <span><strong>Sold:</strong> ${new Date(trade.sellDate).toLocaleDateString()}</span>
-          </div>
-        </div>
-      `).join('')}
-    </div>
-    ` : ''}
-  </div>
-  
-  <script>
-    document.getElementById('buyForm').onsubmit = async (e) => {
-      e.preventDefault();
-      const ticker = document.getElementById('buyTicker').value.toUpperCase();
-      const price = parseFloat(document.getElementById('buyPrice').value);
-      const units = parseFloat(document.getElementById('buyUnits').value);
-      
-      const res = await fetch('/api/buy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker, price, units })
-      });
-      
-      if (res.ok) {
-        alert('✅ Buy recorded!');
-        location.reload();
-      } else {
-        alert('❌ Error recording buy');
-      }
-    };
-    
-    document.getElementById('sellForm').onsubmit = async (e) => {
-      e.preventDefault();
-      const ticker = document.getElementById('sellTicker').value.toUpperCase();
-      const price = parseFloat(document.getElementById('sellPrice').value);
-      const units = parseFloat(document.getElementById('sellUnits').value);
-      
-      const res = await fetch('/api/sell', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker, price, units })
-      });
-      
-      if (res.ok) {
-        alert('✅ Sell recorded!');
-        location.reload();
-      } else {
-        alert('❌ Error recording sell');
-      }
-    };
-    
-    function quickSell(ticker, price) {
-      document.getElementById('sellTicker').value = ticker;
-      document.getElementById('sellPrice').value = price;
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  </script>
-</body>
-</html>
-  `;
-  
-  res.send(html);
-});
-
-// API endpoint to record buy
-app.post('/api/buy', async (req, res) => {
-  try {
-    const { ticker, price, units } = req.body;
-    await addPosition(ticker, price, new Date().toISOString(), `Manual entry - ${units} units`, units);
-    res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// API endpoint to record sell
-app.post('/api/sell', async (req, res) => {
-  try {
-    const { ticker, price, units } = req.body;
-    await removePosition(ticker, price, new Date().toISOString(), `Manual exit - ${units} units`, units);
-    res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ============================================
-// EMAIL REPLY PARSING
-// ============================================
-
-async function checkEmailReplies() {
-  // This would use IMAP to check for replies
-  // For simplicity, using Gmail API would be better
-  // For now, we'll keep manual web interface as primary method
-  
-  // TO IMPLEMENT: Check Gmail inbox for replies matching pattern:
-  // "bought NVDA at 185" or "sold NVDA at 219"
-  // Parse and call addPosition/removePosition
-}
-
-// ============================================
-// PORTFOLIO MANAGEMENT (Same as before)
-// ============================================
+let PORTFOLIO = {
+  positions: [],
+  history: []
+};
 
 async function loadPortfolio() {
   try {
-    const data = await fs.readFile(CONFIG.PORTFOLIO_FILE, 'utf8');
-    return JSON.parse(data);
+    const data = await fs.readFile('./portfolio.json', 'utf8');
+    PORTFOLIO = JSON.parse(data);
   } catch (e) {
-    return { positions: [], history: [] };
+    PORTFOLIO = { positions: [], history: [] };
   }
+  return PORTFOLIO;
 }
 
-async function savePortfolio(portfolio) {
-  await fs.writeFile(
-    CONFIG.PORTFOLIO_FILE,
-    JSON.stringify(portfolio, null, 2),
-    'utf8'
-  );
-}
-
-async function addPosition(ticker, buyPrice, buyDate, buySignal, units = 1) {
-  const portfolio = await loadPortfolio();
-  
-  portfolio.positions.push({
-    ticker,
-    buyPrice,
-    buyDate,
-    buySignal,
-    units,
-    daysHeld: 0,
-    currentPrice: buyPrice,
-    currentValue: buyPrice * units,
-    unrealizedPnL: 0,
-    unrealizedPnLPercent: 0
-  });
-  
-  portfolio.history.push({
-    type: 'BUY',
-    ticker,
-    price: buyPrice,
-    date: buyDate,
-    signal: buySignal,
-    units
-  });
-  
-  await savePortfolio(portfolio);
-  console.log(`✅ Added ${ticker} to portfolio at $${buyPrice} (${units} units)`);
-}
-
-async function removePosition(ticker, sellPrice, sellDate, sellSignal, units = null) {
-  const portfolio = await loadPortfolio();
-  
-  const posIdx = portfolio.positions.findIndex(p => p.ticker === ticker);
-  if (posIdx === -1) {
-    console.log(`⚠️  ${ticker} not in portfolio`);
-    return null;
-  }
-  
-  const position = portfolio.positions[posIdx];
-  const actualUnits = units || position.units;
-  const profit = (sellPrice - position.buyPrice) * actualUnits;
-  const profitPercent = (profit / (position.buyPrice * actualUnits)) * 100;
-  
-  portfolio.history.push({
-    type: 'SELL',
-    ticker,
-    buyPrice: position.buyPrice,
-    sellPrice,
-    profit,
-    profitPercent,
-    daysHeld: position.daysHeld,
-    buyDate: position.buyDate,
-    sellDate,
-    signal: sellSignal,
-    units: actualUnits
-  });
-  
-  // If selling all units, remove position
-  if (!units || units >= position.units) {
-    portfolio.positions.splice(posIdx, 1);
-  } else {
-    // Partial sell - reduce units
-    portfolio.positions[posIdx].units -= units;
-  }
-  
-  await savePortfolio(portfolio);
-  console.log(`✅ Sold ${actualUnits} units of ${ticker} at $${sellPrice} (${profitPercent > 0 ? '+' : ''}${profitPercent.toFixed(2)}%)`);
-  
-  return { position, profit, profitPercent };
-}
-
-async function updatePortfolioPrices(currentPrices) {
-  const portfolio = await loadPortfolio();
-  
-  for (const position of portfolio.positions) {
-    const currentPrice = currentPrices[position.ticker];
-    if (!currentPrice) continue;
-    
-    position.currentPrice = currentPrice;
-    position.currentValue = currentPrice * position.units;
-    position.unrealizedPnL = (currentPrice - position.buyPrice) * position.units;
-    position.unrealizedPnLPercent = ((currentPrice - position.buyPrice) / position.buyPrice) * 100;
-    
-    const buyDate = new Date(position.buyDate);
-    const now = new Date();
-    position.daysHeld = Math.floor((now - buyDate) / (1000 * 60 * 60 * 24));
-  }
-  
-  await savePortfolio(portfolio);
-}
-
-async function getCurrentPrice(ticker) {
-  try {
-    const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`);
-    const data = await response.json();
-    return data.chart.result[0].meta.regularMarketPrice;
-  } catch (e) {
-    console.error(`Price fetch error for ${ticker}:`, e.message);
-    return null;
-  }
-}
-
-async function getCurrentPrices(tickers) {
-  const prices = {};
-  for (const ticker of tickers) {
-    const price = await getCurrentPrice(ticker);
-    if (price) prices[ticker] = price;
-  }
-  return prices;
+async function savePortfolio() {
+  await fs.writeFile('./portfolio.json', JSON.stringify(PORTFOLIO, null, 2));
 }
 
 // ============================================
-// ETORO ASSETS & DATA SOURCES
-// (Same as server-complete.js - keeping it DRY)
+// ASSETS & HELPERS
 // ============================================
 
 const ETORO_TICKERS = {
   'AAPL': 'Apple', 'MSFT': 'Microsoft', 'GOOGL': 'Google', 'AMZN': 'Amazon',
-  'NVDA': 'Nvidia', 'META': 'Meta', 'TSLA': 'Tesla', 'BRK.B': 'Berkshire',
-  'JPM': 'JPMorgan', 'V': 'Visa', 'MA': 'Mastercard', 'WMT': 'Walmart',
-  'DIS': 'Disney', 'NFLX': 'Netflix', 'PYPL': 'PayPal', 'ADBE': 'Adobe',
-  'CSCO': 'Cisco', 'INTC': 'Intel', 'AMD': 'AMD', 'QCOM': 'Qualcomm',
-  'BA': 'Boeing', 'GE': 'GE', 'GM': 'GM', 'F': 'Ford',
-  'COIN': 'Coinbase', 'SQ': 'Block', 'SHOP': 'Shopify', 'UBER': 'Uber',
-  'BABA': 'Alibaba', 'NKE': 'Nike', 'COST': 'Costco', 'PEP': 'Pepsi',
-  'KO': 'Coca-Cola', 'MCD': 'McDonalds', 'BAC': 'BofA', 'WFC': 'Wells Fargo',
-  'BTC': 'Bitcoin', 'ETH': 'Ethereum', 'XRP': 'Ripple', 'ADA': 'Cardano',
-  'SOL': 'Solana', 'DOGE': 'Dogecoin', 'MATIC': 'Polygon', 'DOT': 'Polkadot'
+  'NVDA': 'Nvidia', 'META': 'Meta', 'TSLA': 'Tesla', 'JPM': 'JPMorgan',
+  'V': 'Visa', 'MA': 'Mastercard', 'DIS': 'Disney', 'NFLX': 'Netflix',
+  'PYPL': 'PayPal', 'AMD': 'AMD', 'INTC': 'Intel', 'BA': 'Boeing',
+  'COIN': 'Coinbase', 'BTC': 'Bitcoin', 'ETH': 'Ethereum'
 };
 
-const POWER_TRADERS = {
-  congress: ['Nancy Pelosi', 'Paul Pelosi', 'Josh Gottheimer', 'Ro Khanna'],
-  hedgeFunds: ['BERKSHIRE HATHAWAY', 'Bridgewater', 'ARK Investment']
-};
+const POWER_TRADERS = ['Nancy Pelosi', 'Paul Pelosi', 'Josh Gottheimer'];
 
 function normalizeTicker(ticker) {
   if (!ticker) return null;
@@ -523,28 +69,512 @@ function normalizeTicker(ticker) {
 
 function parseAmount(range) {
   const map = {
-    '$1,001 - $15,000': 8000, '$15,001 - $50,000': 32500,
-    '$50,001 - $100,000': 75000, '$100,001 - $250,000': 175000,
-    '$250,001 - $500,000': 375000, '$500,001 - $1,000,000': 750000,
-    '$1,000,001 - $5,000,000': 3000000, 'Over $50,000,000': 50000000
+    '$1,001 - $15,000': 8000,
+    '$15,001 - $50,000': 32500,
+    '$50,001 - $100,000': 75000,
+    '$100,001 - $250,000': 175000,
+    '$250,001 - $500,000': 375000,
+    '$500,001 - $1,000,000': 750000,
+    '$1,000,001 - $5,000,000': 3000000,
+    'Over $50,000,000': 50000000
   };
   return map[range] || 0;
 }
 
-// [Include all scan functions from server-complete.js]
-// scanCongress, scanSECForm4, scanPolymarket, scanWhales
-// aggregateSignals, generateActionEmail, generateWeeklySummary
-
 // ============================================
-// START SERVERS
+// DATA SOURCES
 // ============================================
 
-function startWebInterface() {
-  app.listen(CONFIG.WEB_PORT, () => {
-    console.log(`\n🌐 Web interface: http://localhost:${CONFIG.WEB_PORT}`);
-    console.log(`   (Render will provide public URL)\n`);
-  });
+async function scanCongress() {
+  try {
+    console.log('🏛️  Scanning Congress trades...');
+    const response = await fetch('https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json');
+    const trades = await response.json();
+    
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const recent = trades.filter(t => new Date(t.transaction_date) > sevenDaysAgo);
+    
+    const signals = [];
+    for (const trade of recent) {
+      const ticker = normalizeTicker(trade.ticker);
+      if (!ticker) continue;
+      
+      const amount = parseAmount(trade.amount);
+      if (amount < 15000) continue;
+      
+      const isPower = POWER_TRADERS.some(name => trade.representative?.includes(name));
+      
+      signals.push({
+        source: 'Congress',
+        ticker,
+        action: trade.type.includes('Sale') ? 'SELL' : 'BUY',
+        confidence: isPower ? 95 : 80,
+        amount,
+        trader: trade.representative,
+        powerTrader: isPower
+      });
+    }
+    
+    console.log(`   ✓ Found ${signals.length} Congress signals`);
+    return signals;
+  } catch (e) {
+    console.error('   ❌ Congress error:', e.message);
+    return [];
+  }
 }
+
+async function scanSECForm4() {
+  if (!CONFIG.SEC_API_KEY || CONFIG.SEC_API_KEY === 'your-sec-api-key-here') {
+    console.log('📋 SEC Form 4: SKIPPED (no API key)');
+    return [];
+  }
+  
+  try {
+    console.log('📋 Scanning SEC Form 4...');
+    const response = await fetch('https://api.sec-api.io/insider-trading', {
+      method: 'POST',
+      headers: {
+        'Authorization': CONFIG.SEC_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query: {
+          query_string: {
+            query: 'transactionDate:[now-7d TO now] AND transactionShares:[5000 TO *]'
+          }
+        },
+        from: 0,
+        size: 50
+      })
+    });
+    
+    const data = await response.json();
+    const transactions = data.transactions || [];
+    
+    const signals = [];
+    const clusterMap = {};
+    
+    for (const t of transactions) {
+      const ticker = normalizeTicker(t.issuer?.tradingSymbol);
+      if (!ticker) continue;
+      
+      const value = (t.transactionShares || 0) * (t.transactionPricePerShare || 0);
+      if (value < 100000) continue;
+      
+      const isBuy = ['P', 'A', 'M'].includes(t.transactionCode);
+      const isSell = t.transactionCode === 'S';
+      
+      if (!isBuy && !isSell) continue;
+      
+      const isCLevel = t.reportingOwner?.relationship?.isOfficer &&
+                      t.reportingOwner?.relationship?.officerTitle?.match(/CEO|CFO|COO|President/i);
+      
+      signals.push({
+        source: 'SEC Form 4',
+        ticker,
+        action: isBuy ? 'BUY' : 'SELL',
+        confidence: isCLevel ? 85 : 75,
+        amount: value,
+        trader: t.reportingOwner?.name
+      });
+      
+      const key = `${ticker}_${isBuy ? 'BUY' : 'SELL'}`;
+      if (!clusterMap[key]) clusterMap[key] = [];
+      clusterMap[key].push(t);
+    }
+    
+    // Detect clusters
+    for (const [key, trades] of Object.entries(clusterMap)) {
+      if (trades.length >= 3) {
+        const [ticker, action] = key.split('_');
+        signals.push({
+          source: 'Insider Cluster',
+          ticker,
+          action,
+          confidence: 90,
+          amount: trades.reduce((sum, t) => sum + (t.transactionShares * t.transactionPricePerShare), 0),
+          isCluster: true
+        });
+      }
+    }
+    
+    console.log(`   ✓ Found ${signals.length} SEC signals`);
+    return signals;
+  } catch (e) {
+    console.error('   ❌ SEC error:', e.message);
+    return [];
+  }
+}
+
+async function scanPolymarket() {
+  try {
+    console.log('📊 Scanning Polymarket...');
+    const response = await fetch('https://gamma-api.polymarket.com/markets?active=true&limit=50');
+    const markets = await response.json();
+    
+    const signals = [];
+    
+    for (const market of markets || []) {
+      if (!market.volume || market.volume < 100000) continue;
+      
+      const title = market.title.toLowerCase();
+      
+      for (const ticker of Object.keys(ETORO_TICKERS)) {
+        const name = ETORO_TICKERS[ticker].toLowerCase();
+        if (title.includes(ticker.toLowerCase()) || title.includes(name)) {
+          const isBullish = title.match(/reach|hit|above|over|exceed|rise/i);
+          const isBearish = title.match(/below|fall|drop|decline|miss/i);
+          
+          if (isBullish || isBearish) {
+            signals.push({
+              source: 'Polymarket',
+              ticker,
+              action: isBullish ? 'BUY' : 'SELL',
+              confidence: 70,
+              amount: market.volume
+            });
+          }
+        }
+      }
+    }
+    
+    console.log(`   ✓ Found ${signals.length} Polymarket signals`);
+    return signals;
+  } catch (e) {
+    console.error('   ❌ Polymarket error:', e.message);
+    return [];
+  }
+}
+
+// ============================================
+// SIGNAL AGGREGATION
+// ============================================
+
+function aggregateSignals(allSignals) {
+  const byTicker = {};
+  
+  for (const sig of allSignals) {
+    if (!byTicker[sig.ticker]) {
+      byTicker[sig.ticker] = {
+        ticker: sig.ticker,
+        buys: [],
+        sells: [],
+        sources: new Set(),
+        powerTraders: []
+      };
+    }
+    
+    const asset = byTicker[sig.ticker];
+    if (sig.action === 'BUY') asset.buys.push(sig);
+    if (sig.action === 'SELL') asset.sells.push(sig);
+    asset.sources.add(sig.source);
+    if (sig.powerTrader) asset.powerTraders.push(sig.trader);
+  }
+  
+  const nuclear = [];
+  
+  for (const [ticker, data] of Object.entries(byTicker)) {
+    const buyScore = data.buys.reduce((sum, s) => sum + s.confidence, 0);
+    const sellScore = data.sells.reduce((sum, s) => sum + s.confidence, 0);
+    
+    if (data.sources.size < CONFIG.MIN_SOURCES) continue;
+    
+    const avgConf = (buyScore + sellScore) / (data.buys.length + data.sells.length);
+    let finalConf = avgConf;
+    if (data.powerTraders.length > 0) finalConf += 10;
+    if (data.sources.size >= 3) finalConf += 10;
+    finalConf = Math.min(finalConf, 99);
+    
+    if (finalConf < CONFIG.NUCLEAR_CONFIDENCE) continue;
+    
+    let action = null;
+    const netScore = buyScore - sellScore;
+    if (netScore > 50) action = netScore > 100 ? 'STRONG BUY' : 'BUY';
+    else if (netScore < -50) action = netScore < -100 ? 'STRONG SELL' : 'SELL';
+    
+    if (action) {
+      nuclear.push({
+        ticker,
+        action,
+        confidence: Math.round(finalConf),
+        sources: Array.from(data.sources),
+        powerTraders: data.powerTraders,
+        buys: data.buys,
+        sells: data.sells
+      });
+    }
+  }
+  
+  return nuclear.sort((a, b) => b.confidence - a.confidence);
+}
+
+// ============================================
+// EMAIL ALERTS
+// ============================================
+
+function generateEmail(signals) {
+  const top = signals[0];
+  
+  let html = `
+<html>
+<head>
+<style>
+  body { font-family: -apple-system, sans-serif; background: #000; color: #fff; padding: 20px; }
+  .hero { background: linear-gradient(135deg, #00ff88, #7928ca); padding: 60px 40px; border-radius: 16px; text-align: center; margin-bottom: 30px; }
+  .action { font-size: 48px; font-weight: 900; }
+  .ticker { font-size: 64px; font-weight: 900; margin: 20px 0; }
+  .conf { font-size: 24px; margin-top: 10px; }
+  .details { background: #1a1a1a; padding: 30px; border-radius: 12px; margin-bottom: 20px; }
+  .source { padding: 12px; background: #2a2a2a; margin: 8px 0; border-radius: 6px; }
+  .btn { display: inline-block; background: #00ff88; color: #000; padding: 20px 50px; border-radius: 12px; text-decoration: none; font-size: 24px; font-weight: 900; margin: 20px 0; }
+</style>
+</head>
+<body>
+  <div class="hero">
+    <div class="action">${top.action}</div>
+    <div class="ticker">${top.ticker}</div>
+    <div class="conf">${top.confidence}% confidence</div>
+    <div class="conf">${top.sources.length} sources${top.powerTraders.length > 0 ? ' + Power Traders' : ''}</div>
+  </div>
+  
+  <div class="details">
+    <h3>Why This Signal:</h3>
+  `;
+  
+  const allSigs = [...top.buys, ...top.sells].slice(0, 5);
+  for (const sig of allSigs) {
+    html += `
+      <div class="source">
+        <strong>${sig.source}:</strong> ${sig.action}
+        ${sig.powerTrader ? '⭐ POWER TRADER' : ''}
+        ${sig.trader ? `<br><small>${sig.trader}</small>` : ''}
+      </div>
+    `;
+  }
+  
+  html += `
+  </div>
+  
+  <div style="text-align: center;">
+    <a href="https://www.etoro.com/discover/markets/stocks/${top.ticker}" class="btn">
+      ${top.action} ON ETORO
+    </a>
+  </div>
+  
+  <div style="text-align: center; padding: 20px; opacity: 0.5; font-size: 12px;">
+    Reply to this email with: "bought 10 at 185" to track your trade
+  </div>
+</body>
+</html>
+  `;
+  
+  return html;
+}
+
+async function sendEmail(subject, html) {
+  if (CONFIG.EMAIL_PASSWORD === 'your-app-password-here') {
+    console.log('   ⚠️  Email not configured - skipping send');
+    return;
+  }
+  
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: CONFIG.EMAIL_FROM,
+        pass: CONFIG.EMAIL_PASSWORD
+      }
+    });
+    
+    await transporter.sendMail({
+      from: CONFIG.EMAIL_FROM,
+      to: CONFIG.EMAIL_TO,
+      subject,
+      html
+    });
+    
+    console.log('   ✅ Email sent!');
+  } catch (e) {
+    console.error('   ❌ Email error:', e.message);
+  }
+}
+
+// ============================================
+// MAIN SCAN
+// ============================================
+
+async function runScan() {
+  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`🚨 NUCLEAR SCAN: ${new Date().toLocaleString()}`);
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+  
+  try {
+    const [congress, sec, poly] = await Promise.all([
+      scanCongress(),
+      scanSECForm4(),
+      scanPolymarket()
+    ]);
+    
+    const all = [...congress, ...sec, ...poly];
+    console.log(`\n📊 Total signals collected: ${all.length}`);
+    
+    if (all.length > 0) {
+      const nuclear = aggregateSignals(all);
+      
+      if (nuclear.length > 0) {
+        console.log(`\n🚨 NUCLEAR SIGNALS DETECTED: ${nuclear.length}`);
+        nuclear.forEach(n => {
+          console.log(`   ${n.action} ${n.ticker} (${n.confidence}%) - ${n.sources.length} sources`);
+        });
+        
+        const subject = `🚨 NUCLEAR: ${nuclear[0].action} ${nuclear[0].ticker} (${nuclear[0].confidence}%)`;
+        await sendEmail(subject, generateEmail(nuclear));
+      } else {
+        console.log('\n✅ No nuclear-level signals (waiting for 85%+ with 2+ sources)');
+      }
+    } else {
+      console.log('\n✅ No signals detected this scan');
+    }
+    
+  } catch (e) {
+    console.error('❌ Scan error:', e.message);
+  }
+  
+  console.log(`\n⏰ Next scan in ${CONFIG.SCAN_INTERVAL_MINUTES} minutes\n`);
+}
+
+// ============================================
+// WEB INTERFACE
+// ============================================
+
+const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+app.get('/', async (req, res) => {
+  await loadPortfolio();
+  
+  const totalUnrealized = PORTFOLIO.positions.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0);
+  const totalRealized = PORTFOLIO.history.filter(h => h.type === 'SELL').reduce((sum, h) => sum + (h.profit || 0), 0);
+  
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Nuclear Insider Detector</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
+    .container { max-width: 900px; margin: 0 auto; }
+    .header { background: rgba(255,255,255,0.95); padding: 30px; border-radius: 16px; margin-bottom: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); text-align: center; }
+    .header h1 { font-size: 32px; color: #1a1a1a; }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+    .stat { background: rgba(255,255,255,0.95); padding: 25px; border-radius: 12px; text-align: center; }
+    .stat-value { font-size: 36px; font-weight: bold; margin: 10px 0; }
+    .positive { color: #10b981; }
+    .negative { color: #ef4444; }
+    .section { background: rgba(255,255,255,0.95); padding: 30px; border-radius: 12px; margin-bottom: 20px; }
+    input, button { padding: 12px 20px; border-radius: 8px; border: 2px solid #e5e7eb; font-size: 16px; margin: 5px; }
+    button { background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; font-weight: bold; cursor: pointer; }
+    .position { background: #f9fafb; padding: 20px; border-radius: 10px; margin: 10px 0; border-left: 5px solid #667eea; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🚨 Nuclear Insider Detector</h1>
+      <p>System Status: <strong style="color: #10b981;">LIVE</strong></p>
+    </div>
+    
+    <div class="stats">
+      <div class="stat">
+        <div>Unrealized P&L</div>
+        <div class="stat-value ${totalUnrealized >= 0 ? 'positive' : 'negative'}">
+          ${totalUnrealized >= 0 ? '+' : ''}$${totalUnrealized.toFixed(2)}
+        </div>
+      </div>
+      <div class="stat">
+        <div>Realized P&L</div>
+        <div class="stat-value ${totalRealized >= 0 ? 'positive' : 'negative'}">
+          ${totalRealized >= 0 ? '+' : ''}$${totalRealized.toFixed(2)}
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2>📝 Record Trade</h2>
+      <form method="POST" action="/buy">
+        <input type="text" name="ticker" placeholder="Ticker (NVDA)" required>
+        <input type="number" name="price" placeholder="Price" step="0.01" required>
+        <input type="number" name="units" placeholder="Units" value="1" step="0.01">
+        <button type="submit">BUY</button>
+      </form>
+      <form method="POST" action="/sell">
+        <input type="text" name="ticker" placeholder="Ticker (NVDA)" required>
+        <input type="number" name="price" placeholder="Price" step="0.01" required>
+        <button type="submit" style="background: linear-gradient(135deg, #ef4444, #dc2626);">SELL</button>
+      </form>
+    </div>
+    
+    <div class="section">
+      <h2>💼 Positions (${PORTFOLIO.positions.length})</h2>
+      ${PORTFOLIO.positions.length === 0 ? '<p>No positions yet. Record your first trade above!</p>' : ''}
+      ${PORTFOLIO.positions.map(p => `
+        <div class="position">
+          <strong>${p.ticker}</strong> - ${p.units} units @ $${p.buyPrice?.toFixed(2) || 0}
+          <br><small>${new Date(p.buyDate).toLocaleDateString()}</small>
+        </div>
+      `).join('')}
+    </div>
+    
+    <div style="text-align: center; color: rgba(255,255,255,0.8); padding: 20px;">
+      <p>Scanning every ${CONFIG.SCAN_INTERVAL_MINUTES} minutes</p>
+      <p>Next alert when 85%+ confidence signal detected</p>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+  
+  res.send(html);
+});
+
+app.post('/buy', async (req, res) => {
+  const { ticker, price, units } = req.body;
+  PORTFOLIO.positions.push({
+    ticker: ticker.toUpperCase(),
+    buyPrice: parseFloat(price),
+    buyDate: new Date().toISOString(),
+    units: parseFloat(units || 1)
+  });
+  await savePortfolio();
+  res.redirect('/');
+});
+
+app.post('/sell', async (req, res) => {
+  const { ticker, price } = req.body;
+  const idx = PORTFOLIO.positions.findIndex(p => p.ticker === ticker.toUpperCase());
+  if (idx >= 0) {
+    const pos = PORTFOLIO.positions[idx];
+    const profit = (parseFloat(price) - pos.buyPrice) * pos.units;
+    PORTFOLIO.history.push({
+      type: 'SELL',
+      ticker: pos.ticker,
+      profit,
+      sellDate: new Date().toISOString()
+    });
+    PORTFOLIO.positions.splice(idx, 1);
+    await savePortfolio();
+  }
+  res.redirect('/');
+});
+
+// ============================================
+// START EVERYTHING
+// ============================================
 
 console.log('╔═══════════════════════════════════════════════════════╗');
 console.log('║   NUCLEAR INSIDER DETECTOR - COMPLETE SYSTEM          ║');
@@ -553,11 +583,23 @@ console.log('Features:');
 console.log('  🎯 Nuclear BUY/SELL signals (85%+)');
 console.log('  📊 Portfolio tracking');
 console.log('  🌐 Web interface for trade recording');
-console.log('  📧 Email reply tracking (coming soon)');
-console.log('  📊 Weekly summaries');
+console.log('  📧 Email alerts');
 console.log('\nStarting...\n');
 
-startWebInterface();
+// Start web interface
+app.listen(CONFIG.WEB_PORT, () => {
+  console.log(`🌐 Web interface running on port ${CONFIG.WEB_PORT}`);
+  console.log(`   Visit: https://insider-detector.onrender.com\n`);
+});
 
-// Continue with scan loop...
-// [Rest of scan logic from server-complete.js]
+// Load portfolio
+loadPortfolio().then(() => {
+  console.log(`📊 Portfolio loaded: ${PORTFOLIO.positions.length} positions\n`);
+});
+
+// Start scanning after 5 seconds
+setTimeout(() => {
+  console.log('🚀 Starting scanner...\n');
+  runScan(); // Run immediately
+  setInterval(runScan, CONFIG.SCAN_INTERVAL_MINUTES * 60 * 1000); // Then every 30 min
+}, 5000);
