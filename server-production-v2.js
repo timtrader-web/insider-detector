@@ -48,7 +48,6 @@ for (const key of REQUIRED) {
 // DATABASE (POSTGRES)
 // ============================================
 
-const { Pool } = require('pg');
 const pool = new Pool({ connectionString: CONFIG.DATABASE_URL });
 
 async function initDatabase() {
