@@ -186,7 +186,10 @@ async function scanCongress() {
     console.log('🏛️  Scanning Congress trades...');
     
     const response = await fetch('https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json', {
-      headers: { 'Accept': 'application/json' },
+      headers: { 
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
       timeout: 10000
     });
     
