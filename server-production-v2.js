@@ -917,7 +917,17 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     mode: CONFIG.PAPER_TRADING ? 'paper' : 'live',
-    scanning: scanInProgress
+    scanning: scanInProgress,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Wake endpoint (keeps Render awake)
+app.get('/wake', (req, res) => {
+  res.json({ 
+    status: 'awake',
+    message: 'Service is alive',
+    timestamp: new Date().toISOString()
   });
 });
 
